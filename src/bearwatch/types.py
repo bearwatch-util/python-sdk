@@ -29,6 +29,14 @@ class PingOptions(TypedDict, total=False):
     retry: bool
 
 
+class WrapOptions(TypedDict, total=False):
+    """Options for wrap operation."""
+
+    output: str | None
+    metadata: dict[str, Any] | None
+    retry: bool
+
+
 class HeartbeatResponse(TypedDict):
     """Response from heartbeat API endpoints.
 

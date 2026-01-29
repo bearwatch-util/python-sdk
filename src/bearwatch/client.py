@@ -240,7 +240,15 @@ class BearWatch:
     # Wrap
     # -------------------------------------------------------------------------
 
-    def wrap(self, job_id: str, fn: Callable[[], T]) -> T:
+    def wrap(
+        self,
+        job_id: str,
+        fn: Callable[[], T],
+        *,
+        output: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        retry: bool = True,
+    ) -> T:
         """Wrap a function with automatic timing and heartbeat reporting (sync).
 
         Automatically measures execution time and reports SUCCESS or FAILED
@@ -250,6 +258,9 @@ class BearWatch:
         Args:
             job_id: Job identifier.
             fn: Function to execute.
+            output: Output message to include in the heartbeat.
+            metadata: Additional key-value pairs to include.
+            retry: Enable/disable retry for the heartbeat request.
 
         Returns:
             Result of the function.
@@ -259,13 +270,29 @@ class BearWatch:
 
         Example:
             ```python
-            result = bw.wrap("my-job", lambda: do_work())
+            result = bw.wrap(
+                "my-job",
+                lambda: do_work(),
+                metadata={
+                    "server": "backup-01",
+                    "region": "ap-northeast-2",
+                    "version": "1.2.0",
+                },
+            )
             ```
         """
         started_at = datetime.now(timezone.utc)
         try:
             result = fn()
-            self.ping(job_id, status="SUCCESS", started_at=started_at, completed_at=datetime.now(timezone.utc))
+            self.ping(
+                job_id,
+                status="SUCCESS",
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                output=output,
+                metadata=metadata,
+                retry=retry,
+            )
             return result
         except Exception as e:
             try:
@@ -275,6 +302,9 @@ class BearWatch:
                     started_at=started_at,
                     completed_at=datetime.now(timezone.utc),
                     error=str(e),
+                    output=output,
+                    metadata=metadata,
+                    retry=retry,
                 )
             except Exception:
                 # Ignore errors from ping() to preserve original exception
@@ -282,7 +312,13 @@ class BearWatch:
             raise
 
     async def wrap_async(
-        self, job_id: str, fn: Callable[[], Awaitable[T]]
+        self,
+        job_id: str,
+        fn: Callable[[], Awaitable[T]],
+        *,
+        output: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        retry: bool = True,
     ) -> T:
         """Wrap an async function with automatic timing and heartbeat reporting.
 
@@ -293,6 +329,9 @@ class BearWatch:
         Args:
             job_id: Job identifier.
             fn: Async function to execute.
+            output: Output message to include in the heartbeat.
+            metadata: Additional key-value pairs to include.
+            retry: Enable/disable retry for the heartbeat request.
 
         Returns:
             Result of the function.
@@ -302,13 +341,29 @@ class BearWatch:
 
         Example:
             ```python
-            result = await bw.wrap_async("my-job", async_do_work)
+            result = await bw.wrap_async(
+                "my-job",
+                async_do_work,
+                metadata={
+                    "server": "backup-01",
+                    "region": "ap-northeast-2",
+                    "version": "1.2.0",
+                },
+            )
             ```
         """
         started_at = datetime.now(timezone.utc)
         try:
             result = await fn()
-            await self.ping_async(job_id, status="SUCCESS", started_at=started_at, completed_at=datetime.now(timezone.utc))
+            await self.ping_async(
+                job_id,
+                status="SUCCESS",
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                output=output,
+                metadata=metadata,
+                retry=retry,
+            )
             return result
         except Exception as e:
             try:
@@ -318,6 +373,9 @@ class BearWatch:
                     started_at=started_at,
                     completed_at=datetime.now(timezone.utc),
                     error=str(e),
+                    output=output,
+                    metadata=metadata,
+                    retry=retry,
                 )
             except Exception:
                 # Ignore errors from ping_async() to preserve original exception

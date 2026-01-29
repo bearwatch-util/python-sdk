@@ -65,7 +65,11 @@ def backup_job():
         "507f1f77bcf86cd799439011",
         status="SUCCESS",
         output=f"Backup completed: {bytes_written} bytes",
-        metadata={"bytes": bytes_written},
+        metadata={
+            "server": "backup-01",
+            "region": "ap-northeast-2",
+            "version": "1.2.0",
+        },
     )
 ```
 
@@ -223,6 +227,7 @@ from bearwatch import (
     ErrorContext,
     HeartbeatResponse,
     PingOptions,
+    WrapOptions,
     RequestStatus,   # For requests: "RUNNING" | "SUCCESS" | "FAILED"
     ResponseStatus,  # For responses: includes "TIMEOUT" | "MISSED"
     Status,          # Alias for ResponseStatus
@@ -258,7 +263,15 @@ class BearWatch:
         retry: bool = True,
     ) -> HeartbeatResponse: ...
 
-    def wrap(self, job_id: str, fn: Callable[[], T]) -> T: ...
+    def wrap(
+        self,
+        job_id: str,
+        fn: Callable[[], T],
+        *,
+        output: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        retry: bool = True,
+    ) -> T: ...
 
     async def ping_async(
         self,
@@ -273,7 +286,15 @@ class BearWatch:
         retry: bool = True,
     ) -> HeartbeatResponse: ...
 
-    async def wrap_async(self, job_id: str, fn: Callable[[], Awaitable[T]]) -> T: ...
+    async def wrap_async(
+        self,
+        job_id: str,
+        fn: Callable[[], Awaitable[T]],
+        *,
+        output: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        retry: bool = True,
+    ) -> T: ...
 ```
 
 ## Common Patterns

@@ -9,6 +9,7 @@ from bearwatch.types import (
     RequestStatus,
     ResponseStatus,
     Status,
+    WrapOptions,
 )
 
 __version__ = "0.1.0"
@@ -27,5 +28,6 @@ __all__ = [
     "ResponseStatus",
     "Status",  # Backward compatibility alias for ResponseStatus
     "PingOptions",
+    "WrapOptions",
     "HeartbeatResponse",
 ]
