@@ -2,7 +2,7 @@
 
 from bearwatch.client import BearWatch
 from bearwatch.config import BearWatchConfig
-from bearwatch.errors import BearWatchError, ErrorContext
+from bearwatch.errors import BearWatchError, ErrorCode, ErrorContext
 from bearwatch.types import (
     HeartbeatResponse,
     PingOptions,
@@ -20,6 +20,7 @@ __all__ = [
     "BearWatchConfig",
     # Errors
     "BearWatchError",
+    "ErrorCode",
     "ErrorContext",
     # Types
     "RequestStatus",
