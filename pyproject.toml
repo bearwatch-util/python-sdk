@@ -1,6 +1,6 @@
 [project]
 name = "bearwatch"
-version = "0.1.0"
+version = "0.1.1"
 description = "BearWatch Python SDK - Job monitoring with heartbeat-based detection"
 readme = "README.md"
 license = { text = "MIT" }
