@@ -2,6 +2,31 @@
 
 Official BearWatch SDK for Python - Job monitoring and alerting for indie developers.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [ping](#ping---manual-status-reporting)
+  - [wrap](#wrap---automatic-status-reporting)
+- [Async Support](#async-support)
+  - [Async Context Manager](#async-context-manager)
+  - [ping_async](#ping_async)
+  - [wrap_async](#wrap_async)
+  - [Async Error Handling](#async-error-handling)
+- [Configuration](#configuration)
+- [Context Manager](#context-manager)
+- [API Reference](#api-reference)
+  - [BearWatch](#bearwatch-1)
+  - [Types](#types)
+  - [Errors](#errors)
+- [Retry Policy](#retry-policy)
+- [Error Handling](#error-handling)
+- [Common Patterns](#common-patterns)
+- [FAQ](#faq)
+- [License](#license)
+
 ## Installation
 
 ```bash
@@ -73,6 +98,19 @@ def backup_job():
     )
 ```
 
+Return value:
+
+```python
+response = bw.ping("507f1f77bcf86cd799439011", status="SUCCESS")
+# response:
+# {
+#     'runId': '684a1b2c3d4e5f6789012345',
+#     'jobId': '507f1f77bcf86cd799439011',
+#     'status': 'SUCCESS',
+#     'receivedAt': '2024-01-15T09:30:00.123Z'
+# }
+```
+
 #### PingOptions
 
 | Option         | Type              | Default      | Description                              |
@@ -80,12 +118,14 @@ def backup_job():
 | `status`       | `RequestStatus`   | `"SUCCESS"`  | `"RUNNING"`, `"SUCCESS"`, or `"FAILED"`  |
 | `output`       | `str`             | -            | Output message (max 10KB)                |
 | `error`        | `str`             | -            | Error message for `FAILED` status (max 10KB) |
-| `started_at`   | `datetime \| str` | current time | Job start time                           |
-| `completed_at` | `datetime \| str` | current time | Job completion time                      |
+| `started_at`   | `datetime \| str` | current time | Job start time (ISO 8601 if string)      |
+| `completed_at` | `datetime \| str` | current time | Job completion time (ISO 8601 if string) |
 | `metadata`     | `dict[str, Any]`  | -            | Additional key-value pairs (max 10KB)    |
-| `retry`        | `bool`            | `True`       | Enable/disable retry                     |
+| `retry`        | `bool`            | `True`       | Set `False` to disable retry for this call |
 
 > **Note**: `TIMEOUT` and `MISSED` are server-detected states and cannot be set in requests.
+
+> **Size Limit**: `output`, `error`, and `metadata` fields have a 10KB size limit. If exceeded, the server automatically truncates the data (no error is returned). For `output` and `error`, the string is truncated. For `metadata`, the entire field is set to `null` if it exceeds the limit.
 
 ### wrap - Automatic Status Reporting
 
@@ -94,9 +134,47 @@ Wraps a function and automatically:
 - Reports `SUCCESS` or `FAILED` based on whether the function completes or throws
 
 ```python
-def backup_job():
-    bw.wrap("507f1f77bcf86cd799439011", lambda: backup())
+# Pass function directly (no arguments)
+bw.wrap("507f1f77bcf86cd799439011", backup)
+
+# Use lambda for functions with arguments
+bw.wrap("507f1f77bcf86cd799439011", lambda: backup(path="/data"))
 ```
+
+Include output and metadata:
+
+```python
+def backup_job():
+    bw.wrap(
+        "507f1f77bcf86cd799439011",
+        lambda: backup(),
+        output="Daily backup completed",
+        metadata={
+            "server": "backup-01",
+            "region": "ap-northeast-2",
+        },
+    )
+```
+
+Return value (returns the wrapped function's result):
+
+```python
+result = bw.wrap("507f1f77bcf86cd799439011", lambda: "done")
+# result: 'done'
+
+count = bw.wrap("507f1f77bcf86cd799439011", lambda: len(records))
+# count: 42
+```
+
+#### WrapOptions
+
+| Option     | Type             | Default | Description                         |
+| ---------- | ---------------- | ------- | ----------------------------------- |
+| `output`   | `str`            | -       | Output message (max 10KB)           |
+| `metadata` | `dict[str, Any]` | -       | Additional key-value pairs (max 10KB) |
+| `retry`    | `bool`           | `True`  | Set `False` to disable retry for this call |
+
+> **Size Limit**: `output` and `metadata` fields have a 10KB size limit. If exceeded, the server automatically truncates the data (no error is returned). For `output`, the string is truncated. For `metadata`, the entire field is set to `null` if it exceeds the limit.
 
 **Error handling behavior:**
 - On success: reports `SUCCESS` with execution duration
@@ -116,18 +194,96 @@ def backup_job():
 
 ## Async Support
 
-The SDK provides async versions of all methods:
+The SDK provides async versions of all methods for use with `asyncio`, FastAPI, and other async frameworks.
+
+### Async Context Manager
+
+Use `async with` for automatic resource cleanup:
 
 ```python
-# Async ping
-await bw.ping_async("507f1f77bcf86cd799439011")
-
-# Async ping with options
-await bw.ping_async("507f1f77bcf86cd799439011", status="FAILED", error="Timeout")
-
-# Async wrap
-result = await bw.wrap_async("507f1f77bcf86cd799439011", async_backup)
+async with BearWatch(api_key="your-api-key") as bw:
+    await bw.ping_async("507f1f77bcf86cd799439011")
+    # Resources automatically cleaned up on exit
 ```
+
+Without context manager (remember to close):
+
+```python
+bw = BearWatch(api_key="your-api-key")
+try:
+    await bw.ping_async("507f1f77bcf86cd799439011")
+finally:
+    await bw.aclose()
+```
+
+### ping_async
+
+```python
+async with BearWatch(api_key="your-api-key") as bw:
+    # Simple success
+    await bw.ping_async("507f1f77bcf86cd799439011")
+
+    # With options
+    await bw.ping_async(
+        "507f1f77bcf86cd799439011",
+        status="FAILED",
+        error="Connection timeout",
+        metadata={"attempt": 3},
+    )
+```
+
+### wrap_async
+
+Wraps an async function and automatically:
+- Measures `started_at` and `completed_at`
+- Reports `SUCCESS` or `FAILED` based on whether the function completes or raises
+
+```python
+async def fetch_data():
+    async with aiohttp.ClientSession() as session:
+        async with session.get("https://api.example.com/data") as resp:
+            return await resp.json()
+
+async with BearWatch(api_key="your-api-key") as bw:
+    # Basic usage
+    result = await bw.wrap_async("507f1f77bcf86cd799439011", fetch_data)
+
+    # With output and metadata
+    result = await bw.wrap_async(
+        "507f1f77bcf86cd799439011",
+        fetch_data,
+        output="Fetched 1000 records",
+        metadata={"source": "api.example.com"},
+    )
+```
+
+### Async Error Handling
+
+**For `ping_async`**: raises `BearWatchError` on failure.
+
+```python
+from bearwatch import BearWatch, BearWatchError
+
+async with BearWatch(api_key="your-api-key") as bw:
+    try:
+        await bw.ping_async("507f1f77bcf86cd799439011")
+    except BearWatchError as e:
+        print(f"Failed to report: {e.code}")
+```
+
+**For `wrap_async`**: reports failure to BearWatch, then re-raises the original exception.
+
+```python
+async with BearWatch(api_key="your-api-key") as bw:
+    try:
+        await bw.wrap_async("507f1f77bcf86cd799439011", async_backup)
+    except BackupError as e:
+        # BearWatch already reported FAILED status
+        # Handle your application error here
+        logger.error(f"Backup failed: {e}")
+```
+
+> **Note**: If `wrap_async` fails to report to BearWatch (network error, etc.), the original exception is still raised. The SDK silently ignores reporting errors to preserve the original exception.
 
 ## Configuration
 
@@ -163,78 +319,9 @@ async with BearWatch(api_key="your-api-key") as bw:
     await bw.ping_async("507f1f77bcf86cd799439011")
 ```
 
-## Retry Policy
+## API Reference
 
-| Method         | Default Retry | Reason                       |
-| -------------- | ------------- | ---------------------------- |
-| `ping()`       | Enabled       | Idempotent operation         |
-| `ping_async()` | Enabled       | Idempotent operation         |
-| `wrap()`       | Enabled       | Uses ping() internally       |
-| `wrap_async()` | Enabled       | Uses ping_async() internally |
-
-### Retry Behavior
-
-- **Exponential backoff**: 500ms → 1000ms → 2000ms
-- **429 Rate Limit**: Respects `Retry-After` header (rate limit: 100 requests/minute per API key)
-- **5xx Server Errors**: Retries with backoff
-- **401/404**: No retry (client errors)
-
-### Disable Retry
-
-```python
-# Disable retry for a specific call
-bw.ping("507f1f77bcf86cd799439011", retry=False)
-```
-
-## Error Handling
-
-When the SDK fails to communicate with BearWatch (network failure, server down, invalid API key, etc.), it raises a `BearWatchError`:
-
-```python
-from bearwatch import BearWatch, BearWatchError
-
-try:
-    bw.ping("507f1f77bcf86cd799439011")
-except BearWatchError as e:
-    # SDK failed to report to BearWatch
-    print(f"Code: {e.code}")
-    print(f"Status: {e.status_code}")
-    print(f"Context: {e.context}")
-```
-
-### Error Codes
-
-| Code               | Description                | Retry   |
-| ------------------ | -------------------------- | ------- |
-| `INVALID_API_KEY`  | 401 - Invalid API key      | No      |
-| `JOB_NOT_FOUND`    | 404 - Job not found        | No      |
-| `RATE_LIMITED`     | 429 - Rate limit reached   | Yes     |
-| `SERVER_ERROR`     | 5xx - Server error         | Yes     |
-| `INVALID_RESPONSE` | Unexpected response format | No      |
-| `NETWORK_ERROR`    | Network failure            | Yes     |
-| `TIMEOUT`          | Request timed out          | Yes     |
-
-## Type Hints
-
-The SDK includes full type hints for IDE support:
-
-```python
-from bearwatch import (
-    BearWatch,
-    BearWatchConfig,
-    BearWatchError,
-    ErrorCode,
-    ErrorContext,
-    HeartbeatResponse,
-    PingOptions,
-    WrapOptions,
-    RequestStatus,   # For requests: "RUNNING" | "SUCCESS" | "FAILED"
-    ResponseStatus,  # For responses: includes "TIMEOUT" | "MISSED"
-    Status,          # Alias for ResponseStatus
-)
-```
-
-### Method Signatures
+### BearWatch
 
 ```python
 class BearWatch:
@@ -295,7 +382,152 @@ class BearWatch:
         metadata: dict[str, Any] | None = None,
         retry: bool = True,
     ) -> T: ...
+
+    def close(self) -> None: ...
+    async def aclose(self) -> None: ...
 ```
+
+### Types
+
+#### Status Types
+
+```python
+# Status that SDK can send to the server
+RequestStatus = Literal["RUNNING", "SUCCESS", "FAILED"]
+
+# Status that server can return (includes server-detected states)
+ResponseStatus = Literal["RUNNING", "SUCCESS", "FAILED", "TIMEOUT", "MISSED"]
+```
+
+#### HeartbeatResponse
+
+Return value of `ping()` and `wrap()` methods:
+
+```python
+class HeartbeatResponse(TypedDict):
+    runId: str           # Generated run ID
+    jobId: str           # Job ID
+    status: ResponseStatus
+    receivedAt: str      # Server received time (ISO 8601)
+```
+
+#### BearWatchConfig
+
+Configuration for `BearWatch.create()` method:
+
+```python
+@dataclass
+class BearWatchConfig:
+    api_key: str              # Required - API authentication key
+    timeout: float = 30.0     # Request timeout in seconds
+    max_retries: int = 3      # Maximum retry attempts
+    retry_delay: float = 0.5  # Retry interval in seconds (exponential backoff)
+```
+
+### Errors
+
+#### BearWatchError
+
+```python
+class BearWatchError(Exception):
+    code: ErrorCode           # Error code
+    status_code: int | None   # HTTP status code
+    context: ErrorContext | None
+    response_body: str | None # Response body for debugging
+```
+
+#### ErrorCode
+
+```python
+ErrorCode = Literal[
+    "INVALID_API_KEY",   # 401 - Invalid API key
+    "JOB_NOT_FOUND",     # 404 - Job not found
+    "RATE_LIMITED",      # 429 - Rate limit exceeded
+    "SERVER_ERROR",      # 5xx - Server error
+    "INVALID_RESPONSE",  # Unexpected response format
+    "NETWORK_ERROR",     # Network failure
+    "TIMEOUT",           # Request timeout
+]
+```
+
+#### ErrorContext
+
+```python
+@dataclass
+class ErrorContext:
+    job_id: str | None = None
+    run_id: str | None = None
+    operation: str | None = None  # "ping", "wrap", etc.
+```
+
+#### Imports
+
+```python
+from bearwatch import (
+    BearWatch,
+    BearWatchConfig,
+    BearWatchError,
+    ErrorCode,
+    ErrorContext,
+    HeartbeatResponse,
+    PingOptions,
+    WrapOptions,
+    RequestStatus,
+    ResponseStatus,
+)
+```
+
+## Retry Policy
+
+| Method         | Default Retry | Reason                       |
+| -------------- | ------------- | ---------------------------- |
+| `ping()`       | Enabled       | Idempotent operation         |
+| `ping_async()` | Enabled       | Idempotent operation         |
+| `wrap()`       | Enabled       | Uses ping() internally       |
+| `wrap_async()` | Enabled       | Uses ping_async() internally |
+
+### Retry Behavior
+
+- **Exponential backoff**: 500ms → 1000ms → 2000ms
+- **429 Rate Limit**: Respects `Retry-After` header (rate limit: 100 requests/minute per API key)
+- **5xx Server Errors**: Retries with backoff
+- **401/404**: No retry (client errors)
+
+### Disable Retry
+
+Use `retry=False` to skip retries for a specific call, regardless of the `max_retries` setting:
+
+```python
+bw.ping("507f1f77bcf86cd799439011", retry=False)
+```
+
+## Error Handling
+
+When the SDK fails to communicate with BearWatch (network failure, server down, invalid API key, etc.), it raises a `BearWatchError`:
+
+```python
+from bearwatch import BearWatch, BearWatchError
+
+try:
+    bw.ping("507f1f77bcf86cd799439011")
+except BearWatchError as e:
+    # SDK failed to report to BearWatch
+    print(f"Code: {e.code}")
+    print(f"Status: {e.status_code}")
+    print(f"Context: {e.context}")
+```
+
+### Error Codes
+
+| Code               | Description                | Retry   |
+| ------------------ | -------------------------- | ------- |
+| `INVALID_API_KEY`  | 401 - Invalid API key      | No      |
+| `JOB_NOT_FOUND`    | 404 - Job not found        | No      |
+| `RATE_LIMITED`     | 429 - Rate limit reached   | Yes     |
+| `SERVER_ERROR`     | 5xx - Server error         | Yes     |
+| `INVALID_RESPONSE` | Unexpected response format | No      |
+| `NETWORK_ERROR`    | Network failure            | Yes     |
+| `TIMEOUT`          | Request timed out          | Yes     |
 
 ## Common Patterns
 
