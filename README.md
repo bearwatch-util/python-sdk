@@ -73,12 +73,18 @@ scheduler.start()
 Use `ping` when you need fine-grained control over status reporting:
 
 ```python
+import traceback
+
 def backup_job():
     try:
         backup()
         bw.ping("507f1f77bcf86cd799439011", status="SUCCESS")
     except Exception as e:
-        bw.ping("507f1f77bcf86cd799439011", status="FAILED", error=str(e))
+        bw.ping(
+            "507f1f77bcf86cd799439011",
+            status="FAILED",
+            error="".join(traceback.format_exception(type(e), e, e.__traceback__))
+        )
 ```
 
 Include output and metadata:
@@ -117,7 +123,7 @@ response = bw.ping("507f1f77bcf86cd799439011", status="SUCCESS")
 | -------------- | ----------------- | ------------ | ---------------------------------------- |
 | `status`       | `RequestStatus`   | `"SUCCESS"`  | `"RUNNING"`, `"SUCCESS"`, or `"FAILED"`  |
 | `output`       | `str`             | -            | Output message (max 10KB)                |
-| `error`        | `str`             | -            | Error message for `FAILED` status (max 10KB) |
+| `error`        | `str`             | -            | Error message for `FAILED` status (max 75KB) |
 | `started_at`   | `datetime \| str` | current time | Job start time (ISO 8601 if string)      |
 | `completed_at` | `datetime \| str` | current time | Job completion time (ISO 8601 if string) |
 | `metadata`     | `dict[str, Any]`  | -            | Additional key-value pairs (max 10KB)    |
@@ -125,7 +131,7 @@ response = bw.ping("507f1f77bcf86cd799439011", status="SUCCESS")
 
 > **Note**: `TIMEOUT` and `MISSED` are server-detected states and cannot be set in requests.
 
-> **Size Limit**: `output`, `error`, and `metadata` fields have a 10KB size limit. If exceeded, the server automatically truncates the data (no error is returned). For `output` and `error`, the string is truncated. For `metadata`, the entire field is set to `null` if it exceeds the limit.
+> **Size Limit**: `output` and `metadata` fields have a 10KB size limit, and `error` field has a 75KB size limit. If exceeded, the server automatically truncates the data (no error is returned). For `output` and `error`, the string is truncated. For `metadata`, the entire field is set to `null` if it exceeds the limit.
 
 ### wrap - Automatic Status Reporting
 
@@ -489,7 +495,7 @@ from bearwatch import (
 ### Retry Behavior
 
 - **Exponential backoff**: 500ms → 1000ms → 2000ms
-- **429 Rate Limit**: Respects `Retry-After` header (rate limit: 100 requests/minute per API key)
+- **429 Rate Limit**: Respects `Retry-After` header
 - **5xx Server Errors**: Retries with backoff
 - **401/404**: No retry (client errors)
 

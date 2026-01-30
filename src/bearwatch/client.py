@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, TypeVar
 
@@ -295,13 +296,16 @@ class BearWatch:
             )
             return result
         except Exception as e:
+            error_message = "".join(
+                traceback.format_exception(type(e), e, e.__traceback__)
+            )
             try:
                 self.ping(
                     job_id,
                     status="FAILED",
                     started_at=started_at,
                     completed_at=datetime.now(timezone.utc),
-                    error=str(e),
+                    error=error_message,
                     output=output,
                     metadata=metadata,
                     retry=retry,
@@ -366,13 +370,16 @@ class BearWatch:
             )
             return result
         except Exception as e:
+            error_message = "".join(
+                traceback.format_exception(type(e), e, e.__traceback__)
+            )
             try:
                 await self.ping_async(
                     job_id,
                     status="FAILED",
                     started_at=started_at,
                     completed_at=datetime.now(timezone.utc),
-                    error=str(e),
+                    error=error_message,
                     output=output,
                     metadata=metadata,
                     retry=retry,
